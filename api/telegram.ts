@@ -3,14 +3,14 @@ import { connectDatabase } from '../src/database/connection';
 import { createBot } from '../src/bot';
 import { logger } from '../src/utils/logger';
 
-let botPromise: ReturnType<typeof createBot> | null = null;
+let bot: ReturnType<typeof createBot> | null = null;
 
-function getBot() {
-  if (!botPromise) {
-    botPromise = Promise.resolve(createBot());
+function getBot(): ReturnType<typeof createBot> {
+  if (!bot) {
+    bot = createBot();
   }
 
-  return botPromise;
+  return bot;
 }
 
 export default async function handler(
@@ -35,9 +35,9 @@ export default async function handler(
   try {
     await connectDatabase();
 
-    const bot = await getBot();
+    const botInstance = getBot();
 
-    await bot.handleUpdate(req.body);
+    await botInstance.handleUpdate(req.body);
 
     return res.status(200).json({
       ok: true,
