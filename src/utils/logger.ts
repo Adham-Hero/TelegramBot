@@ -19,7 +19,6 @@ export const logger = winston.createLogger({
   ),
 
   transports: [
-    // Vercel Serverless: use console logging only.
     new winston.transports.Console(),
   ],
 
