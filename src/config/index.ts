@@ -25,8 +25,10 @@ export const config = {
   pageSize: optionalNumber('PAGE_SIZE', 10),
   logLevel: process.env.LOG_LEVEL || 'info',
   botMode: (process.env.BOT_MODE as 'polling' | 'webhook') || 'polling',
+  // Only used by scripts/set-webhook.ts to know which URL to register with
+  // Telegram. The deployed Vercel function itself doesn't need this - it
+  // just handles whatever request Vercel routes to it.
   webhookDomain: process.env.WEBHOOK_DOMAIN || '',
-  webhookPort: optionalNumber('WEBHOOK_PORT', 8443),
 };
 
 export type AppConfig = typeof config;

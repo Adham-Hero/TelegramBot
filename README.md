@@ -21,6 +21,37 @@ bot's menus automatically — **zero code changes, zero redeploys.**
 
 ---
 
+## 🚀 Deployment
+
+**Production runs on Vercel via a webhook**, not polling:
+```
+Telegram → HTTPS Webhook → api/telegram.ts (Vercel Serverless Function) → MongoDB Atlas
+```
+Full step-by-step instructions: **[`VERCEL_DEPLOYMENT.md`](./VERCEL_DEPLOYMENT.md)**
+(includes a troubleshooting section for deployment failures and for a bot
+that sends duplicate/repeated messages).
+
+Local development still uses polling (`BOT_MODE=polling`, `npm run dev`) -
+see `SETUP.md`. The two modes are deliberately kept in separate entrypoints
+(`src/index.ts` for polling, `api/telegram.ts` for the webhook) so they can
+never run against the same bot at once.
+
+### 🔒 Security - read before you commit/push anything
+- `.env` holds your real secrets and is git-ignored. **Never** put real
+  values in `.env.example` - it must only ever contain variable *names*.
+- If `BOT_TOKEN` or `MONGODB_URI` were ever committed to git (even briefly,
+  even in a private repo), treat them as compromised: revoke the bot token
+  via @BotFather and rotate the MongoDB Atlas password immediately, then use
+  the new values going forward. A leaked bot token is the most common real
+  cause of a bot suddenly sending messages nobody asked for - anyone who has
+  the token can call the Bot API directly, with no code from this repo
+  involved at all. See `VERCEL_DEPLOYMENT.md` step 0.
+- The webhook handler (`api/telegram.ts`) supports an optional
+  `WEBHOOK_SECRET` that Telegram echoes back on every request, so the
+  endpoint can reject anything that didn't actually come from Telegram.
+
+---
+
 ## ⚠️ Read this first: what the Telegram Bot API can and cannot do
 
 This is the single most important design constraint in this project, and it
@@ -62,7 +93,15 @@ Telegram platform limitation, not a shortcut taken in this codebase.
 ## Architecture
 
 ```
+api/
+  telegram.ts    Vercel Serverless Function - the ONLY thing Telegram talks to
+                 in production. Always answers 200 (see comments in the file
+                 for why), dedupes retried updates via ProcessedUpdate, and
+                 lazily creates+caches one Telegraf bot instance per warm
+                 container so handlers are registered exactly once.
 src/
+  index.ts       LOCAL/POLLING entrypoint only (`npm run dev` / `npm start`).
+                 Never used on Vercel - refuses to start if BOT_MODE=webhook.
   bot/
     commands/    /start, /search, /admin, /sync, /stats
     callbacks/   single router for all inline-button presses
@@ -74,8 +113,10 @@ src/
     archiveService.ts   read-side: browse the tree, list files
     searchService.ts    free-text search across files
   database/
-    models/      HierarchyNode (generic tree), Topic, ArchiveFile, User, SyncLog
-    connection.ts
+    models/      HierarchyNode (generic tree), Topic, ArchiveFile, User, SyncLog,
+                 ProcessedUpdate (webhook idempotency guard, TTL-cleaned after 3 days)
+    connection.ts  caches the MongoDB connection across warm serverless
+                   invocations instead of reconnecting on every request
   utils/
     topicParser.ts   the only place that knows the "4 segments" format - purely structural, no fixed vocab
     normalizer.ts    text normalization so "Anatomy"/"anatomy"/"  Anatomy " are the same node
@@ -83,10 +124,10 @@ src/
     callbackData.ts  short, safe callback_data encode/decode (Telegram's 64-byte limit)
     pagination.ts
     validators.ts
-    logger.ts
+    logger.ts        console-only logging (no local log files - Vercel's filesystem isn't persistent)
   config/        env var loading + validation
-  index.ts       entrypoint
 scripts/
+  set-webhook.ts               registers/inspects/deletes the Telegram webhook against your Vercel URL
   simulate-hierarchy-test.ts   standalone script proving the dynamic-discovery
                                scenario works with zero code changes (run with
                                `npx ts-node --transpile-only scripts/simulate-hierarchy-test.ts`)

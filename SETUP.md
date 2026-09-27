@@ -202,34 +202,41 @@ a valid 4-part name and run `/sync` — it should move into the tree correctly.
 
 ## 19. Deployment
 
-### Option A — simplest: polling, always-on VM/container
-Any VPS, small droplet, Railway/Render/Fly.io app, or a Docker container is
-enough since `BOT_MODE=polling` doesn't need a public URL:
+### Recommended: Vercel (webhook mode, 24/7, no server to manage)
+See **`VERCEL_DEPLOYMENT.md`** for the complete, step-by-step guide (GitHub →
+Vercel → environment variables → MongoDB Atlas network access → deploy →
+register the webhook → test). This is the architecture the project is built
+for: `Telegram → HTTPS webhook → api/telegram.ts (Vercel Serverless
+Function) → MongoDB Atlas`, with no long-running process and no polling in
+production.
+
+### Alternative: self-hosted, always-on VM/container (polling mode)
+If you'd rather not use Vercel, any VPS, small droplet, Railway/Render/Fly.io
+app, or Docker container works fine with `BOT_MODE=polling` (no public URL
+needed - this is `src/index.ts`, the polling entrypoint):
 ```bash
 npm run build
 npm start
 ```
 Use a process manager (`pm2`, `systemd`, or your platform's own restart
-policy) so it survives crashes/reboots.
-
-### Option B — webhook mode (needs a public HTTPS domain)
-Set in `.env`:
-```env
-BOT_MODE=webhook
-WEBHOOK_DOMAIN=https://your-domain.example.com
-WEBHOOK_PORT=8443
-```
-Telegraf will register the webhook and listen on `WEBHOOK_PORT` — put this
-behind a reverse proxy (Nginx/Caddy) terminating TLS on 443 if you don't want
-to expose 8443 directly, or use one of Telegram's whitelisted webhook ports
-(443, 80, 88, 8443).
+policy) so it survives crashes/reboots. Do **not** also register a Telegram
+webhook while running this - `getUpdates` (polling) and a webhook are
+mutually exclusive; Telegram will reject polling with a 409 Conflict if a
+webhook is still set. Run `npm run set-webhook -- delete` first if you're
+switching from webhook mode back to polling.
 
 ### Database in production
-Use MongoDB Atlas (or a managed MongoDB instance) rather than a local
-`mongod` for anything long-running; update `MONGODB_URI` accordingly. Make
-sure the network mounts/firewall rules allow the app to reach it.
+Use MongoDB Atlas (or another managed MongoDB instance), never a local
+`mongod`, for anything long-running. Make sure Atlas's **Network Access**
+allows connections from wherever the app runs - for Vercel, that means
+`0.0.0.0/0` (Allow access from anywhere), since Vercel functions don't have
+fixed outbound IPs on the Hobby/Pro tiers. See `VERCEL_DEPLOYMENT.md` for
+details.
 
 ### Logs
-Written to `logs/combined.log` and `logs/error.log` (see `src/utils/logger.ts`).
-Rotate these with `logrotate` or your platform's log management if running
-long-term.
+The app logs to the console only (`src/utils/logger.ts`) - it never writes
+to local files in production, since Vercel's filesystem isn't a place to
+keep persistent logs anyway. On Vercel, view logs under your project's
+**Deployments → [deployment] → Functions → api/telegram** tab, or with
+`vercel logs`. Running locally, console output goes straight to your
+terminal.

@@ -1,8 +1,28 @@
 import { connectDatabase } from './database/connection';
 import { createBot } from './bot';
 import { logger } from './utils/logger';
+import { config } from './config';
 
+/**
+ * LOCAL/POLLING ENTRYPOINT ONLY. This file is what `npm run dev` and
+ * `npm start` run - it is NEVER used on Vercel (the deployed function is
+ * api/telegram.ts, which handles webhook updates instead). Keeping this
+ * clearly separate avoids ever having both a polling process AND a
+ * webhook registered against the same bot at once, which Telegram itself
+ * rejects with a 409 Conflict (polling's getUpdates fails loudly while a
+ * webhook is set) - so run this only when BOT_MODE=polling.
+ */
 async function main() {
+  if (config.botMode === 'webhook') {
+    logger.error(
+      'BOT_MODE=webhook, but this is the local POLLING entrypoint (src/index.ts). ' +
+        'Refusing to start polling: if a webhook is also registered with Telegram for this bot, ' +
+        'running both at once causes conflicts. Either set BOT_MODE=polling in your local .env for ' +
+        'development, or test webhook mode locally with `vercel dev` instead of `npm run dev`/`npm start`.'
+    );
+    process.exit(1);
+  }
+
   await connectDatabase();
 
   const bot = createBot();

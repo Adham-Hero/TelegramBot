@@ -1,0 +1,11 @@
+# These are never needed by the deployed function - api/telegram.ts is
+# compiled directly from its TypeScript source and only pulls in what it
+# actually imports (src/**). Keeping the deployment upload small and fast.
+dist/
+logs/
+*.log
+scripts/
+SETUP.md
+VERCEL_DEPLOYMENT.md
+README.md
+.env.example

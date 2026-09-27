@@ -1,5 +1,11 @@
 node_modules/
 dist/
-.env
+.vercel/
 logs/
 *.log
+
+# Never commit real secrets. Only .env.example (a template with no real
+# values) should ever be tracked by git.
+.env
+.env.local
+.env.*.local
