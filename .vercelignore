@@ -9,3 +9,11 @@ SETUP.md
 VERCEL_DEPLOYMENT.md
 README.md
 .env.example
+
+# Local polling entrypoint - must never be deployed (Vercel would treat it as a server
+# entrypoint and start polling, which deletes the Telegram webhook).
+src/local.ts
+
+# In case an old copy of the polling entrypoint is still around
+src/index.ts
+index.ts

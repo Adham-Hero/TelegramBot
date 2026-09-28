@@ -50,8 +50,15 @@ export function createBot(): Telegraf {
   // messages that weren't consumed by the archive-group branch above.
   bot.on('text', plainTextSearchHandler);
 
-  bot.catch((err, ctx) => {
-    logger.error('Unhandled bot error', { err, updateType: ctx.updateType });
+  bot.catch(async (err, ctx) => {
+    logger.error('Unhandled bot error', {
+      message: err instanceof Error ? err.message : String(err),
+      updateType: ctx.updateType,
+    });
+    // Tell the user something went wrong instead of staying silent.
+    if (ctx.chat?.type === 'private') {
+      await ctx.reply('حدث خطأ مؤقت، حاول مرة أخرى بعد قليل.').catch(() => undefined);
+    }
   });
 
   return bot;

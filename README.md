@@ -33,7 +33,7 @@ that sends duplicate/repeated messages).
 
 Local development still uses polling (`BOT_MODE=polling`, `npm run dev`) -
 see `SETUP.md`. The two modes are deliberately kept in separate entrypoints
-(`src/index.ts` for polling, `api/telegram.ts` for the webhook) so they can
+(`src/local.ts` for polling, `api/telegram.ts` for the webhook) so they can
 never run against the same bot at once.
 
 ### 🔒 Security - read before you commit/push anything

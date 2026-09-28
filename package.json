@@ -2,11 +2,10 @@
   "name": "telegram-archive-bot",
   "version": "1.0.0",
   "description": "Fully dynamic Telegram forum-topic archive bot (no hardcoded academic categories)",
-  "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/src/index.js",
-    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "start": "node dist/src/local.js",
+    "dev": "ts-node-dev --respawn --transpile-only src/local.ts",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "set-webhook": "ts-node scripts/set-webhook.ts"

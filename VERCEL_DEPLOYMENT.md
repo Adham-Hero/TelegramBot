@@ -271,3 +271,28 @@ does and doesn't cover.
    indexes.
 4. Check Vercel → your project → Logs for the duration of each request to see
    whether the time is spent on cold starts or on every request.
+
+## 18. "I send /start and nothing happens" - diagnosis in 3 steps
+
+1. Open `https://<project>.vercel.app/api/telegram?check=1` in a browser.
+   - `missingEnv` not empty -> add those variables in Vercel, then Redeploy.
+   - `mongo` starts with `error` -> Atlas password/URI wrong, or Network Access
+     is missing `0.0.0.0/0`.
+   - `"ok": true` -> the deployment itself is healthy; go to step 2.
+2. Run `npm run set-webhook -- info` and read `url` and `last_error_message`:
+   - `url` empty or not your current Vercel URL -> run `npm run set-webhook -- set https://<project>.vercel.app`.
+   - `401` -> `WEBHOOK_SECRET` differs between Vercel and your local `.env`
+     (or one of them is empty). Make them identical and run set-webhook again.
+   - `404` -> wrong domain in the webhook URL.
+   - `pending_update_count` growing -> Telegram can't deliver; see the error above.
+3. Make sure the webhook was registered with the SAME (new) `BOT_TOKEN` that is
+   in Vercel. After revoking a token, set-webhook must be run again.
+   Then check Vercel -> Logs while sending `/start`.
+
+## 19. Important: never name a file `src/index.ts`
+
+Vercel auto-detects files like `src/index.ts`, `index.ts`, `app.ts`, `server.ts`
+as the entrypoint of a normal server and runs them. The local polling entrypoint
+is therefore named `src/local.ts`. If that ever runs on Vercel, Telegraf's
+`bot.launch()` deletes your webhook and the bot stops answering. If that
+happened, redeploy and run `npm run set-webhook -- set https://<project>.vercel.app` again.

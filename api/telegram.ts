@@ -1,31 +1,53 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { connectDatabase } from '../src/database/connection';
-import { createBot } from '../src/bot';
-import { ProcessedUpdate } from '../src/database/models/ProcessedUpdate';
-import { logger } from '../src/utils/logger';
 import type { Telegraf } from 'telegraf';
-
-// Module-level singleton: on a WARM invocation this module is not
-// re-evaluated, so `bot` stays set and handlers are registered exactly
-// once for the lifetime of this function instance. A cold start gets a
-// fresh module (and a fresh, single registration) - never duplicated.
-let botReady: Promise<Telegraf> | null = null;
+import mongoose from 'mongoose';
 
 /**
- * Creates the bot once per warm instance and pre-fetches its own identity
- * (getMe) so Telegraf doesn't do that lazily in the middle of the first
- * update. It runs in parallel with the MongoDB connection (see handler),
- * so a cold start pays for the slower of the two, not both added together.
+ * The app modules are loaded lazily (dynamic import) instead of at the top
+ * of the file. src/config throws if a required environment variable is
+ * missing; with a static import that would crash the whole function before
+ * any code here could run, and you'd only see a generic Vercel 500. Loading
+ * lazily lets us report exactly what is wrong (see GET ?check=1) and lets
+ * the POST path log it clearly.
  */
-function getBot(): Promise<Telegraf> {
+type App = {
+  connectDatabase: typeof import('../src/database/connection').connectDatabase;
+  createBot: typeof import('../src/bot').createBot;
+  ProcessedUpdate: typeof import('../src/database/models/ProcessedUpdate').ProcessedUpdate;
+  logger: typeof import('../src/utils/logger').logger;
+};
+
+let appPromise: Promise<App> | null = null;
+
+function loadApp(): Promise<App> {
+  if (!appPromise) {
+    appPromise = (async () => {
+      const [{ connectDatabase }, { createBot }, { ProcessedUpdate }, { logger }] = await Promise.all([
+        import('../src/database/connection'),
+        import('../src/bot'),
+        import('../src/database/models/ProcessedUpdate'),
+        import('../src/utils/logger'),
+      ]);
+      return { connectDatabase, createBot, ProcessedUpdate, logger };
+    })().catch((err) => {
+      appPromise = null; // allow a retry on the next invocation
+      throw err;
+    });
+  }
+  return appPromise;
+}
+
+// One bot per warm instance -> handlers registered exactly once.
+let botReady: Promise<Telegraf> | null = null;
+
+function getBot(app: App): Promise<Telegraf> {
   if (!botReady) {
     botReady = (async () => {
-      const b = createBot();
+      const b = app.createBot();
       try {
         b.botInfo = await b.telegram.getMe();
       } catch (err: any) {
-        // Non-fatal: Telegraf will fetch it lazily if this failed.
-        logger.warn('getMe pre-fetch failed', { message: err?.message });
+        app.logger.warn('getMe pre-fetch failed', { message: err?.message });
       }
       return b;
     })();
@@ -33,43 +55,55 @@ function getBot(): Promise<Telegraf> {
   return botReady;
 }
 
+const REQUIRED_ENV = ['BOT_TOKEN', 'ADMIN_ID', 'ARCHIVE_GROUP_ID', 'MONGODB_URI'];
+
+/** Removes anything that looks like a connection string from an error message. */
+function safeMessage(err: any): string {
+  return String(err?.message ?? err).replace(/mongodb(\+srv)?:\/\/\S+/gi, '<mongodb-uri>').slice(0, 300);
+}
+
 /**
- * IMPORTANT: this handler ALWAYS responds with HTTP 200 to Telegram,
- * whatever happens internally (success, a handled error, or an unexpected
- * crash). This is deliberate, not an oversight:
- *
- * Telegram's webhook delivery retries automatically whenever it doesn't
- * get a fast 200 response - and a retry means the ENTIRE update is
- * reprocessed from scratch. If our handler throws and we answer with a
- * 500 (as this endpoint used to), Telegram queues the exact same update
- * for redelivery, which re-runs every side effect (sending a file,
- * posting a message, etc.) again - this is what caused the bot to appear
- * to "randomly" send duplicate/repeated messages. Errors are still fully
- * logged server-side; they're just never turned into a reason for
- * Telegram to retry.
- *
- * The ProcessedUpdate guard below is the second, independent layer: even
- * if a redelivery ever does happen (network hiccup, Telegram-side retry
- * before our 200 was received, etc.), it's detected and skipped instead
- * of being processed twice.
+ * Always answers 200 to Telegram's POSTs, whatever happens internally:
+ * a non-200 makes Telegram redeliver the same update, which re-runs every
+ * side effect (duplicate messages). Errors are logged instead. The
+ * ProcessedUpdate guard additionally skips any update_id seen before.
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Simple health check - lets you confirm the deployment is live by just
-  // opening the URL in a browser, and is what `set-webhook.ts` uses to
-  // sanity-check the target before registering it with Telegram.
   if (req.method === 'GET') {
-    // `?warm=1` pre-connects MongoDB and initialises the bot so the next
-    // real Telegram update doesn't pay the cold-start cost. Point a free
-    // uptime pinger (e.g. cron-job.org) at this URL every ~5 minutes.
+    // Diagnostics: open /api/telegram?check=1 in a browser. Reports only
+    // yes/no facts and error names - never any secret values.
+    if (req.query?.check) {
+      const missingEnv = REQUIRED_ENV.filter((k) => !process.env[k] || process.env[k]!.trim() === '');
+      const result: Record<string, unknown> = {
+        ok: false,
+        missingEnv,
+        webhookSecretConfigured: Boolean(process.env.WEBHOOK_SECRET),
+      };
+      if (missingEnv.length === 0) {
+        try {
+          const app = await loadApp();
+          await app.connectDatabase();
+          await mongoose.connection.db!.admin().ping();
+          result.mongo = 'ok';
+          result.ok = true;
+        } catch (err: any) {
+          result.mongo = `error: ${safeMessage(err)}`;
+        }
+      }
+      return res.status(200).json(result);
+    }
+
     if (req.query?.warm) {
       try {
-        await Promise.all([connectDatabase(), getBot()]);
+        const app = await loadApp();
+        await Promise.all([app.connectDatabase(), getBot(app)]);
         return res.status(200).json({ ok: true, warm: true });
       } catch (err: any) {
-        logger.error('Warm-up failed', { message: err?.message });
+        console.error('Warm-up failed:', safeMessage(err));
         return res.status(200).json({ ok: false, warm: false });
       }
     }
+
     return res.status(200).json({ ok: true, service: 'telegram-archive-bot', mode: 'webhook' });
   }
 
@@ -77,64 +111,40 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ ok: false, error: 'Method Not Allowed' });
   }
 
-  // Optional but recommended: if WEBHOOK_SECRET is set, only accept
-  // requests that carry the matching secret Telegram attaches when you
-  // register the webhook with a secret_token (see scripts/set-webhook.ts).
-  // This stops anyone who finds/guesses your URL from POSTing fake
-  // "Telegram updates" straight at your bot.
+  // Optional shared secret: Telegram echoes the secret_token given to
+  // setWebhook in this header. If WEBHOOK_SECRET is set here it MUST match
+  // the one used when running `npm run set-webhook`, otherwise every real
+  // update is rejected with 401 and the bot appears completely dead.
   const expectedSecret = process.env.WEBHOOK_SECRET;
-  if (expectedSecret) {
-    const provided = req.headers['x-telegram-bot-api-secret-token'];
-    if (provided !== expectedSecret) {
-      logger.warn('Rejected webhook request with invalid/missing secret token');
-      // Still fine to use a non-200 here - this request never came from
-      // Telegram in the first place, so there's no legitimate update for
-      // Telegram itself to retry.
-      return res.status(401).json({ ok: false });
-    }
+  if (expectedSecret && req.headers['x-telegram-bot-api-secret-token'] !== expectedSecret) {
+    console.warn('Rejected webhook request: missing/invalid secret token (does WEBHOOK_SECRET match set-webhook?)');
+    return res.status(401).json({ ok: false });
   }
 
   const update = req.body;
   const updateId = typeof update?.update_id === 'number' ? update.update_id : undefined;
 
   try {
-    // Run both cold-start tasks concurrently instead of one after the other.
-    const [, botInstance] = await Promise.all([connectDatabase(), getBot()]);
+    const app = await loadApp();
+    const { logger } = app;
+    const [, botInstance] = await Promise.all([app.connectDatabase(), getBot(app)]);
 
     if (updateId !== undefined) {
       try {
-        await ProcessedUpdate.create({ updateId });
+        await app.ProcessedUpdate.create({ updateId });
       } catch (dedupeErr: any) {
         if (dedupeErr?.code === 11000) {
-          // Duplicate key = we've already processed this exact update_id.
-          // This is a Telegram retry of something we already handled -
-          // acknowledge and stop here WITHOUT running the handler again.
           logger.warn('Duplicate Telegram update ignored', { updateId });
           return res.status(200).json({ ok: true, duplicate: true });
         }
-        // Dedupe bookkeeping itself failed for some other reason (e.g. a
-        // transient Mongo error). Log it and continue processing anyway -
-        // a rare duplicate is a much smaller problem than silently
-        // dropping a legitimate update.
-        logger.error('Dedupe check failed, processing update anyway', {
-          updateId,
-          message: dedupeErr?.message,
-        });
+        logger.error('Dedupe check failed, processing update anyway', { updateId, message: safeMessage(dedupeErr) });
       }
     }
 
     await botInstance.handleUpdate(update);
     return res.status(200).json({ ok: true });
   } catch (err: any) {
-    logger.error('Telegram webhook error', {
-      updateId,
-      message: err?.message,
-      // Stack traces are fine to log (they never contain secrets), but we
-      // deliberately never log req.body in full or any env var values.
-      stack: err?.stack,
-    });
-    // See the big comment above `handler`: always 200, never 500, so
-    // Telegram doesn't queue this update for a retry.
+    console.error('Telegram webhook error:', { updateId, message: safeMessage(err), stack: err?.stack });
     return res.status(200).json({ ok: false, error: 'handled_internally' });
   }
 }

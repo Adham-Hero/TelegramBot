@@ -213,7 +213,7 @@ production.
 ### Alternative: self-hosted, always-on VM/container (polling mode)
 If you'd rather not use Vercel, any VPS, small droplet, Railway/Render/Fly.io
 app, or Docker container works fine with `BOT_MODE=polling` (no public URL
-needed - this is `src/index.ts`, the polling entrypoint):
+needed - this is `src/local.ts`, the polling entrypoint):
 ```bash
 npm run build
 npm start
