@@ -1,60 +1,15 @@
-import { connectDatabase } from './database/connection';
-import { createBot } from './bot';
-import { logger } from './utils/logger';
-import { config } from './config';
-
 /**
- * LOCAL/POLLING ENTRYPOINT ONLY. This file is what `npm run dev` and
- * `npm start` run - it is NEVER used on Vercel (the deployed function is
- * api/telegram.ts, which handles webhook updates instead). Keeping this
- * clearly separate avoids ever having both a polling process AND a
- * webhook registered against the same bot at once, which Telegram itself
- * rejects with a 409 Conflict (polling's getUpdates fails loudly while a
- * webhook is set) - so run this only when BOT_MODE=polling.
+ * SAFETY NET - this file must never start the bot or poll.
+ *
+ * Vercel auto-detects `src/index.ts` as a server entrypoint and runs it. An
+ * older version of this project used this exact path for the local polling
+ * entrypoint, and if that old copy is still deployed, Telegraf's
+ * `bot.launch()` deletes the webhook and crashes. This stub replaces it: it
+ * simply serves the webhook handler, so even if Vercel picks this file as the
+ * entrypoint, the behaviour is correct (no polling, no webhook deletion).
+ *
+ * The real local polling entrypoint is `src/local.ts` (npm run dev / start).
  */
-async function main() {
-  if (config.botMode === 'webhook') {
-    logger.error(
-      'BOT_MODE=webhook, but this is the local POLLING entrypoint (src/index.ts). ' +
-        'Refusing to start polling: if a webhook is also registered with Telegram for this bot, ' +
-        'running both at once causes conflicts. Either set BOT_MODE=polling in your local .env for ' +
-        'development, or test webhook mode locally with `vercel dev` instead of `npm run dev`/`npm start`.'
-    );
-    process.exit(1);
-  }
+import handler from '../api/telegram';
 
-  await connectDatabase();
-
-  const bot = createBot();
-
-  await bot.launch();
-
-  logger.info('Bot launched in polling mode');
-
-  // Graceful shutdown helper
-  const shutdown = async (signal: string) => {
-    logger.info(`Received ${signal}. Stopping bot...`);
-    try {
-      await bot.stop(signal);
-      logger.info('Bot stopped gracefully');
-      process.exit(0);
-    } catch (err) {
-      logger.error('Error during graceful shutdown', {
-        err: err instanceof Error ? err.message : String(err),
-      });
-      process.exit(1);
-    }
-  };
-
-  process.once('SIGINT', () => shutdown('SIGINT'));
-  process.once('SIGTERM', () => shutdown('SIGTERM'));
-}
-
-main().catch((err) => {
-  logger.error('Fatal startup error', {
-    err: err instanceof Error ? err.message : String(err),
-    stack: err instanceof Error ? err.stack : undefined,
-  });
-
-  process.exit(1);
-});
+export default handler;
