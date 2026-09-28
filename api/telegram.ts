@@ -55,6 +55,10 @@ function getBot(app: App): Promise<Telegraf> {
   return botReady;
 }
 
+// Bumped on every fix so you can confirm which code is actually live:
+// open /api/telegram and look at the "build" field.
+const BUILD_ID = 'r6-stub-entry';
+
 const REQUIRED_ENV = ['BOT_TOKEN', 'ADMIN_ID', 'ARCHIVE_GROUP_ID', 'MONGODB_URI'];
 
 /** Removes anything that looks like a connection string from an error message. */
@@ -76,6 +80,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const missingEnv = REQUIRED_ENV.filter((k) => !process.env[k] || process.env[k]!.trim() === '');
       const result: Record<string, unknown> = {
         ok: false,
+        build: BUILD_ID,
         missingEnv,
         webhookSecretConfigured: Boolean(process.env.WEBHOOK_SECRET),
       };
@@ -104,7 +109,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    return res.status(200).json({ ok: true, service: 'telegram-archive-bot', mode: 'webhook' });
+    return res.status(200).json({ ok: true, service: 'telegram-archive-bot', mode: 'webhook', build: BUILD_ID });
   }
 
   if (req.method !== 'POST') {
