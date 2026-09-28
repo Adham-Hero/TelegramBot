@@ -2,6 +2,7 @@
   "version": 2,
   "buildCommand": "echo \"no build step needed - api/telegram.ts is compiled by Vercel\"",
   "outputDirectory": "public",
+  "regions": ["fra1"],
   "functions": {
     "api/telegram.ts": {
       "memory": 1024,

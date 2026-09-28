@@ -53,6 +53,10 @@ export async function connectDatabase(): Promise<typeof mongoose> {
         // disconnected - we'd rather surface a clear error than hang until
         // the function times out.
         bufferCommands: false,
+        // Index creation runs on every cold start when autoIndex is on. After
+        // the first successful deploy (indexes exist), set AUTO_INDEX=false
+        // in Vercel to skip that extra work.
+        autoIndex: process.env.AUTO_INDEX !== 'false',
       })
       .catch((err) => {
         // Let the NEXT invocation retry a fresh connection instead of

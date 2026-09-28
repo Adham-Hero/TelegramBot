@@ -9,13 +9,28 @@ import type { Telegraf } from 'telegraf';
 // re-evaluated, so `bot` stays set and handlers are registered exactly
 // once for the lifetime of this function instance. A cold start gets a
 // fresh module (and a fresh, single registration) - never duplicated.
-let bot: Telegraf | null = null;
+let botReady: Promise<Telegraf> | null = null;
 
-function getBot(): Telegraf {
-  if (!bot) {
-    bot = createBot();
+/**
+ * Creates the bot once per warm instance and pre-fetches its own identity
+ * (getMe) so Telegraf doesn't do that lazily in the middle of the first
+ * update. It runs in parallel with the MongoDB connection (see handler),
+ * so a cold start pays for the slower of the two, not both added together.
+ */
+function getBot(): Promise<Telegraf> {
+  if (!botReady) {
+    botReady = (async () => {
+      const b = createBot();
+      try {
+        b.botInfo = await b.telegram.getMe();
+      } catch (err: any) {
+        // Non-fatal: Telegraf will fetch it lazily if this failed.
+        logger.warn('getMe pre-fetch failed', { message: err?.message });
+      }
+      return b;
+    })();
   }
-  return bot;
+  return botReady;
 }
 
 /**
@@ -43,6 +58,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // opening the URL in a browser, and is what `set-webhook.ts` uses to
   // sanity-check the target before registering it with Telegram.
   if (req.method === 'GET') {
+    // `?warm=1` pre-connects MongoDB and initialises the bot so the next
+    // real Telegram update doesn't pay the cold-start cost. Point a free
+    // uptime pinger (e.g. cron-job.org) at this URL every ~5 minutes.
+    if (req.query?.warm) {
+      try {
+        await Promise.all([connectDatabase(), getBot()]);
+        return res.status(200).json({ ok: true, warm: true });
+      } catch (err: any) {
+        logger.error('Warm-up failed', { message: err?.message });
+        return res.status(200).json({ ok: false, warm: false });
+      }
+    }
     return res.status(200).json({ ok: true, service: 'telegram-archive-bot', mode: 'webhook' });
   }
 
@@ -71,7 +98,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const updateId = typeof update?.update_id === 'number' ? update.update_id : undefined;
 
   try {
-    await connectDatabase();
+    // Run both cold-start tasks concurrently instead of one after the other.
+    const [, botInstance] = await Promise.all([connectDatabase(), getBot()]);
 
     if (updateId !== undefined) {
       try {
@@ -95,7 +123,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    await getBot().handleUpdate(update);
+    await botInstance.handleUpdate(update);
     return res.status(200).json({ ok: true });
   } catch (err: any) {
     logger.error('Telegram webhook error', {

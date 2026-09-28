@@ -17,6 +17,14 @@ export async function callbackRouter(ctx: Context) {
   try {
     const decoded = decodeCallback(data);
 
+    // Stop the button's loading spinner right away for plain navigation,
+    // instead of making the user wait for the database work below.
+    // (Admin actions and file requests answer themselves, since they may
+    // need to show an alert.)
+    if (['home', 'node', 'search_page'].includes(decoded.action)) {
+      ctx.answerCbQuery().catch(() => undefined);
+    }
+
     switch (decoded.action) {
       case 'home':
         await renderHome(ctx);

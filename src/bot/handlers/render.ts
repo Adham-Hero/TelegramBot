@@ -48,9 +48,11 @@ export async function renderNode(ctx: Context, nodeId: string, page = 1) {
   const step = nextLevel(node.level);
 
   if (step === 'files') {
-    const { files, total } = await listFilesForContentType(node._id as Types.ObjectId, page, config.pageSize);
+    const [{ files, total }, breadcrumb] = await Promise.all([
+      listFilesForContentType(node._id as Types.ObjectId, page, config.pageSize),
+      getBreadcrumb(node._id as Types.ObjectId),
+    ]);
     const info = pageInfoFromTotal(total, page, config.pageSize);
-    const breadcrumb = await getBreadcrumb(node._id as Types.ObjectId);
     const title = breadcrumb.map((n) => n.rawName).join(' › ');
 
     if (total === 0) {
@@ -67,8 +69,10 @@ export async function renderNode(ctx: Context, nodeId: string, page = 1) {
     return;
   }
 
-  const children = await listChildren(node._id as Types.ObjectId);
-  const breadcrumb = await getBreadcrumb(node._id as Types.ObjectId);
+  const [children, breadcrumb] = await Promise.all([
+    listChildren(node._id as Types.ObjectId),
+    getBreadcrumb(node._id as Types.ObjectId),
+  ]);
   const title = breadcrumb.map((n) => n.rawName).join(' › ');
   const backId = node.parentId ? String(node.parentId) : null;
 

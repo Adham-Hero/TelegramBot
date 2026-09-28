@@ -253,3 +253,21 @@ does and doesn't cover.
   someone else can run them, double-check `ADMIN_ID` in Vercel's environment
   variables is actually your numeric Telegram user ID, not a group ID or a
   stale/wrong value.
+
+## 17. Performance (if the bot feels slow)
+
+1. **Region (biggest win).** `vercel.json` pins the function to `fra1`
+   (Frankfurt). Your MongoDB Atlas cluster should be in a nearby region
+   (Frankfurt/Ireland/Paris/Stockholm on AWS or GCP). If the cluster is in the
+   US, either move it (Atlas → cluster → Edit → region) or change `regions` to
+   match it. Function and database in different continents adds a delay to
+   every single query.
+2. **Cold starts.** The first request after a quiet period is slower. Create a
+   free monitor at cron-job.org (or UptimeRobot) that requests
+   `https://<project>.vercel.app/api/telegram?warm=1` every 5 minutes; that
+   keeps MongoDB connected and the bot initialised.
+3. **Indexes.** After the first successful deploy, add the environment variable
+   `AUTO_INDEX=false` in Vercel and redeploy, so cold starts stop re-checking
+   indexes.
+4. Check Vercel → your project → Logs for the duration of each request to see
+   whether the time is spent on cold starts or on every request.
