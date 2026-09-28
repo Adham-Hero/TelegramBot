@@ -69,14 +69,14 @@ Vercel dashboard → **Add New...** → **Project** → select your GitHub repo 
 - **Framework Preset**: leave as **Other** (this is a plain Node.js
   serverless-function project, not Next.js/etc.).
 - **Build Command**: leave it as configured by `vercel.json`
-  (`"buildCommand": null`) - the project intentionally skips running
+  (a no-op `echo`) - the project intentionally skips running
   `npm run build` for deployment, because Vercel's Node runtime compiles
   `api/telegram.ts` and everything it imports from `src/` directly from
   TypeScript on its own. The `build`/`start` scripts in `package.json` are
   only for optional self-hosted polling mode (see `SETUP.md`), not for this
   deployment path.
-- **Output Directory**: leave empty/default - there's no static site here,
-  only the serverless function under `/api`.
+- **Output Directory**: `public` (already set in `vercel.json`; it only holds a
+  placeholder page - the real work is the serverless function under `/api`).
 - **Install Command**: default (`npm install`) is fine.
 
 You generally don't need to touch any of these manually since `vercel.json`
@@ -235,7 +235,7 @@ does and doesn't cover.
 
 **Vercel build fails**
 - Make sure Build Command wasn't manually overridden in the dashboard to
-  `npm run build` (see step 4) - `vercel.json` sets `buildCommand: null` on
+  `npm run build` (see step 4) - `vercel.json` sets a no-op `buildCommand` and `outputDirectory: public` on
   purpose.
 - Run `npm run typecheck` locally first; fix any TypeScript errors it
   reports before pushing.
