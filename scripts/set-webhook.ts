@@ -30,7 +30,7 @@ async function callTelegram(method: string, params?: Record<string, string>) {
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   }
   const res = await fetch(url.toString());
-  const json = await res.json();
+  const json: any = await res.json();
   if (!json.ok) {
     throw new Error(`Telegram API error on ${method}: ${JSON.stringify(json)}`);
   }

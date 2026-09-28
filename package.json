@@ -8,8 +8,7 @@
     "dev": "ts-node-dev --respawn --transpile-only src/local.ts",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "set-webhook": "ts-node scripts/set-webhook.ts"
-  },
+  "set-webhook": "ts-node --transpile-only scripts/set-webhook.ts"  },
   "dependencies": {
     "dotenv": "^16.4.5",
     "mongoose": "^8.7.0",
